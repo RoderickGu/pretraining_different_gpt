@@ -99,3 +99,29 @@ def parse_args(argv=None):
 def freeze_model(model: nn.Module):
     for p in model.parameters():
         p.requires_grad = False
+
+
+def get_transformer_optim_params(args, model: nn.Module):
+    param_optimizer = model.named_parameters()
+
+    no_decay = ["bias", "ln", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params":
+                [
+                    p for n, p in param_optimizer
+                    if not any(nd in n for nd in no_decay)
+                ],
+            "weight_decay": 0.01,
+        },
+        {
+            "params":
+                [
+                    p for n, p in param_optimizer
+                    if any(nd in n for nd in no_decay)
+                ],
+            "weight_decay": 0.0,
+        },
+    ]
+
+    return optimizer_grouped_parameters

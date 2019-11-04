@@ -27,7 +27,8 @@ class DialogFragmentSampler:
     def __init__(self, max_len=1024):
         """Sample dialog fragments from a dialog
         """
-        self.max_tokens_len = max_len
+        self.max_num_tokens = max_len
+        self.max_num_turns = 20
 
     def __call__(self, dialog):
         """dialog is a dict which has key "token_ids"
@@ -37,15 +38,15 @@ class DialogFragmentSampler:
         lengths = np.array([len(item) for item in dialog['token_ids']])
 
         # if the entire dialog is smaller than the max len
-        if lengths.sum() < self.max_tokens_len:
+        if lengths.sum() < self.max_num_tokens:
             return dialog
 
         cumsum_len = lengths.cumsum()
-        reverse_cumsum_len = cumsum_len[-1] - cumsum_len
+        reverse_cumsum_len = cumsum_len[::-1]
 
         # based on the reverse cumsum, we can have a range to select from
         start_turns = np.arange(len(reverse_cumsum_len)
-                               )[reverse_cumsum_len > self.max_tokens_len]
+                               )[reverse_cumsum_len > self.max_num_tokens]
         # remove odd numbers
         start_turns = [idx for idx in start_turns if idx % 2 == 0]
         # randomly choose one
@@ -54,13 +55,15 @@ class DialogFragmentSampler:
 
         # find the maximum end turn (only odd turn)
         for i in reversed(range(len(new_cumsum_len))):
-            if i % 2 == 1 and new_cumsum_len[i] < self.max_tokens_len:
+            if i % 2 == 1 and new_cumsum_len[i] < self.max_num_tokens:
                 random_end_turn = i
                 break
 
-        dialog_fragment["text"] = dialog['text'][random_start_turn:
-                                                 random_end_turn + 1]
-        dialog_fragment["token_ids"] = dialog['token_ids'][random_start_turn:
-                                                           random_end_turn + 1]
+        # dialog_fragment["text"] = dialog['text'][random_start_turn:
+        #                                          random_end_turn + 1]
+        random_end_turn = min(
+            random_end_turn, random_start_turn + self.max_num_turns - 1
+        )
+        dialog_fragment["token_ids"] = dialog['token_ids'][random_start_turn:random_end_turn + 1]
 
         return dialog_fragment

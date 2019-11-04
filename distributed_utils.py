@@ -91,7 +91,7 @@ class DistributedManager:
         else:
             return False
 
-    def backward_loss(self, loss, optimizer, loss_id=0):
+    def backward_loss(self, loss, model, optimizer, loss_id=0):
         if self.args.fp16:
             with amp.scale_loss(
                 loss, optimizer, loss_id=loss_id

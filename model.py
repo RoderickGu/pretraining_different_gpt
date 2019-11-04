@@ -85,7 +85,7 @@ class ARDM(nn.Module):
             logits, lm_logits, target, target_mask, self.lm_coef
         )
 
-    def train_one_dialog(self, dialog):
+    def train_one_step(self, dialog):
         self.model_A.train()
         self.model_B.train()
 
