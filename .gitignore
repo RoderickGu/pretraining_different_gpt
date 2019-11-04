@@ -1,5 +1,6 @@
 corpus
 *data
+*.ipynb
 # data
 *.json
 # log files

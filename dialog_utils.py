@@ -24,11 +24,11 @@ def safe_clean_text(text):
 
 
 class DialogFragmentSampler:
-    def __init__(self, max_len=1024):
+    def __init__(self, max_tokens=1024, max_turns=20):
         """Sample dialog fragments from a dialog
         """
-        self.max_num_tokens = max_len
-        self.max_num_turns = 20
+        self.max_num_tokens = max_tokens - 1
+        self.max_num_turns = max_turns
 
     def __call__(self, dialog):
         """dialog is a dict which has key "token_ids"
