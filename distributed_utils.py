@@ -24,7 +24,6 @@ class DistributedManager:
         self.main_rank = 0
 
         if args.local_rank != -1:
-            print(args.local_rank)
             torch.cuda.set_device(args.local_rank)
             device = torch.device("cuda", args.local_rank)
             torch.distributed.init_process_group(backend='nccl')
@@ -85,6 +84,12 @@ class DistributedManager:
         )
 
         return models, optimizers
+
+    def is_main_rank(self):
+        if self.rank in [-1, self.main_rank]:
+            return True
+        else:
+            return False
 
     def backward_loss(self, loss, optimizer, loss_id=0):
         if self.args.fp16:

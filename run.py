@@ -100,4 +100,5 @@ if __name__ == '__main__':
         optimizer.step()
         scheduler.step()
 
-        logger.info(f"KL is {kl}")
+        if manager.is_main_rank():
+            logger.info(f"KL is {kl}")
