@@ -51,6 +51,7 @@ class DialogFragmentSampler:
         start_turns = [idx for idx in start_turns if idx % 2 == 0]
         # randomly choose one
         random_start_turn = random.choice(start_turns)
+        cumsum_len = np.concatenate([[0], cumsum_len], axis=0)
         new_cumsum_len = cumsum_len - cumsum_len[random_start_turn]
 
         # find the maximum end turn (only odd turn)
@@ -59,11 +60,14 @@ class DialogFragmentSampler:
                 random_end_turn = i
                 break
 
-        # dialog_fragment["text"] = dialog['text'][random_start_turn:
-        #                                          random_end_turn + 1]
         random_end_turn = min(
             random_end_turn, random_start_turn + self.max_num_turns - 1
         )
-        dialog_fragment["token_ids"] = dialog['token_ids'][random_start_turn:random_end_turn + 1]
+        dialog_fragment["token_ids"] = dialog['token_ids'][random_start_turn:
+                                                           random_end_turn]
+
+        assert sum(
+            [len(item) for item in dialog_fragment["token_ids"]]
+        ) < self.max_num_tokens
 
         return dialog_fragment
