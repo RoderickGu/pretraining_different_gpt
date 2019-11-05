@@ -38,7 +38,7 @@ class DialogFragmentSampler:
         lengths = np.array([len(item) for item in dialog['token_ids']])
 
         # if the entire dialog is smaller than the max len
-        if lengths.sum() < self.max_num_tokens:
+        if lengths.sum() <= self.max_num_tokens:
             return dialog
 
         cumsum_len = lengths.cumsum()
@@ -50,7 +50,10 @@ class DialogFragmentSampler:
         # remove odd numbers
         start_turns = [idx for idx in start_turns if idx % 2 == 0]
         # randomly choose one
-        random_start_turn = random.choice(start_turns)
+        try:
+            random_start_turn = random.choice(start_turns)
+        except:
+            breakpoint()
         cumsum_len = np.concatenate([[0], cumsum_len], axis=0)
         new_cumsum_len = cumsum_len - cumsum_len[random_start_turn]
 
@@ -63,6 +66,7 @@ class DialogFragmentSampler:
         random_end_turn = min(
             random_end_turn, random_start_turn + self.max_num_turns - 1
         )
+
         dialog_fragment["token_ids"] = dialog['token_ids'][random_start_turn:
                                                            random_end_turn]
 

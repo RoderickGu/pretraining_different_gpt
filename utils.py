@@ -15,7 +15,7 @@ def parse_args(argv=None):
     # add all arguments
     parser.add_argument(
         "--learning_rate",
-        default=5e-5,
+        default=1e-4,
         type=float,
         help="The initial learning rate for AdamW."
     )
@@ -29,7 +29,7 @@ def parse_args(argv=None):
         help="Total number of training epochs to perform."
     )
     parser.add_argument(
-        "--max_grad_norm", default=-1.0, type=float, help="Max gradient norm."
+        "--max_grad_norm", default=5.0, type=float, help="Max gradient norm."
     )
     # warmup settings
     parser.add_argument(
@@ -67,7 +67,7 @@ def parse_args(argv=None):
     parser.add_argument(
         '--checkpoint_dir',
         type=str,
-        default="Cehckpoint",
+        default="Checkpoint",
         help="Set checkpoint directory."
     )
     # fp 16 training

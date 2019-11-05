@@ -69,7 +69,7 @@ class ARDM(nn.Module):
         utils.freeze_model(self.language_model)
 
         self.criterion = sequence_ce_lm_loss
-        self.lm_coef = 1.0
+        self.lm_coef = 0.1
         self.discount_factor = 0.95
         self.lm_stream = torch.cuda.Stream()
 

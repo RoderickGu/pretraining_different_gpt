@@ -1,11 +1,14 @@
 import os
 import json
 import numpy as np
+import random
 import time
 import tqdm
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, RandomSampler, DistributedSampler
+from torch.utils.tensorboard import SummaryWriter
+from allennlp.training.checkpointer import Checkpointer
 import logging
 
 from torchfly.transformers import UnifiedTokenizer, GPT2SimpleLM
@@ -20,13 +23,14 @@ from model import ARDM
 logger = logging.getLogger(__name__)
 
 
-class PersuadeDataset(Dataset):
+class DialogCorpusDataset(Dataset):
     def __init__(self, data, tokenizer):
-        self.data = data
+        # only interested in the values
+        self.data = list(data.values())
         self.tokenizer = tokenizer
-        self.tokenizer.max_len = 1500
+        self.tokenizer.max_len = 4096
         self.turn_ending = tokenizer.encode("\n\n\n")
-        self.sampler = DialogFragmentSampler()
+        self.sampler = DialogFragmentSampler(max_tokens=800)
 
     def __len__(self):
         return len(self.data)
@@ -34,21 +38,35 @@ class PersuadeDataset(Dataset):
     def __getitem__(self, index):
         # get data
         sample = self.data[index]
-        dialog = {
-            "token_ids": [tokenizer.encode(item) for item in sample['text']]
-        }
-        dialog_fragments = self.sampler(dialog)
-        return dialog_fragments["token_ids"]
+        dialog = sample
+        dialog_fragment = self.sampler(dialog)
+        return dialog_fragment["token_ids"]
 
     def collate(self, batch):
-        batch = [torch.LongTensor([item]) for item in batch[0]]
+        # only one item in the batch
+        batch = batch[0]
+        total_len = sum([len(item) for item in batch])
+        # make random positions
+        start_position = random.randint(0, 1024 - total_len)
+
+        position_ids = []
+        for item in batch:
+            pos = torch.arange(start_position,
+                               start_position + len(item)).unsqueeze(0)
+            position_ids.append(pos)
+            start_position = start_position + len(item)
+
+        batch = [torch.LongTensor([item]) for item in batch]
+
         return batch
+
 
 def dialog_to_tensor(tokenzier, dialog, device=None):
     res = [torch.LongTensor([tokenizer.encode(item)]) for item in dialog]
     if device:
         res = [item.to(device) for item in res]
     return res
+
 
 if __name__ == '__main__':
     init_logging()
@@ -59,10 +77,10 @@ if __name__ == '__main__':
     tokenizer = UnifiedTokenizer()
 
     # construct dataset
-    with open("train.json") as f:
+    with open("dialog_corpus.json") as f:
         train_data = json.load(f)
 
-    train_dataset = PersuadeDataset(train_data, tokenizer)
+    train_dataset = DialogCorpusDataset(train_data, tokenizer)
 
     if args.local_rank == -1:
         train_sampler = RandomSampler(train_dataset)
@@ -92,7 +110,9 @@ if __name__ == '__main__':
         args.warmup_steps = int(args.warmup_ratio * len(train_dataset))
 
     scheduler = WarmupLinearSchedule(
-        optimizer, warmup_steps=args.warmup_steps, t_total=num_train_optimization_steps
+        optimizer,
+        warmup_steps=args.warmup_steps,
+        t_total=num_train_optimization_steps
     )
 
     manager.init_training(model, optimizer)
@@ -104,6 +124,12 @@ if __name__ == '__main__':
         progress_bar = iter
 
     if manager.is_main_rank():
+        checkpointer = Checkpointer(
+            "Checkpoint",
+            keep_serialized_model_every_num_seconds=3600 * 4,
+            num_serialized_models_to_keep=10
+        )
+        writer = SummaryWriter()
         start = time.time()
         update_loss = 0.0
         update_kl = 0.0
@@ -123,16 +149,34 @@ if __name__ == '__main__':
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
-                
+
                 # timer
                 if manager.is_main_rank():
                     end = time.time()
-                    speed = args.batch_size * args.n_gpu * args.gradient_accumulation_steps  / (end - start)
+                    speed = args.batch_size * args.n_gpu * args.gradient_accumulation_steps / (
+                        end - start
+                    )
                     start = end
                     # show progress
-                    pbar.set_postfix(loss=update_loss, kl=update_kl, speed=speed)
-            
+                    pbar.set_postfix(
+                        loss=update_loss, kl=update_kl, speed=speed
+                    )
+
             # post-processing
             if manager.is_main_rank():
-                update_loss = update_loss * 0.9 + 0.1 * loss.item()
-                update_kl = update_kl * 0.9 + 0.1 * kl
+                pass
+                if update_count % args.logging_steps == 0:
+                    writer.add_scalar('loss', loss.item(), update_count)
+                    writer.add_scalar('loss', kl, update_count)
+                    update_loss = update_loss * 0.9 + 0.1 * loss.item()
+                    update_kl = update_kl * 0.9 + 0.1 * kl
+
+                # saving models
+
+                if update_count % args.save_steps == 0:
+                    checkpointer.save_checkpoint(
+                        update_count,
+                        model.state_dict(),
+                        optimizer.state_dict(),
+                        is_best_so_far=True
+                    )
