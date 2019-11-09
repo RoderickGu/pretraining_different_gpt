@@ -1,0 +1,1 @@
+screen -S dialog -L -Logfile "pretrain.log"

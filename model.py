@@ -70,6 +70,7 @@ class ARDM(nn.Module):
 
         self.criterion = sequence_ce_lm_loss
         self.lm_coef = 0.1
+        self.lm_coef_decay = 0.9999
         self.discount_factor = 0.95
         self.lm_stream = torch.cuda.Stream()
 
@@ -85,9 +86,13 @@ class ARDM(nn.Module):
             logits, lm_logits, target, target_mask, self.lm_coef
         )
 
-    def train_one_step(self, dialog):
+    def train_one_step(self, batch):
+        self.lm_coef *= self.lm_coef_decay
         self.model_A.train()
         self.model_B.train()
+
+        dialog = batch["input_ids"]
+        dialog_position_ids = batch["position_ids"]
 
         past = None
         lm_past = None
@@ -100,14 +105,14 @@ class ARDM(nn.Module):
             torch.cuda.synchronize()
             with torch.cuda.stream(self.lm_stream):
                 lm_logits, lm_past = self.language_model(
-                    dialog[turn_idx], past=lm_past
+                    dialog[turn_idx], position_ids=dialog_position_ids[turn_idx], past=lm_past
                 )
 
             if turn_idx % 2 == 0:
-                logits, past = self.model_A(dialog[turn_idx], past=past)
+                logits, past = self.model_A(dialog[turn_idx], position_ids=dialog_position_ids[turn_idx], past=past)
 
             else:
-                logits, past = self.model_B(dialog[turn_idx], past=past)
+                logits, past = self.model_B(dialog[turn_idx], position_ids=dialog_position_ids[turn_idx], past=past)
 
             loss, lm_kl = self.get_loss(dialog[turn_idx], logits, lm_logits)
             total_loss += discount_coef[turn_idx] * loss

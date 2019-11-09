@@ -42,21 +42,30 @@ class DialogCorpusDataset(Dataset):
         dialog_fragment = self.sampler(dialog)
         return dialog_fragment["token_ids"]
 
-    def collate(self, batch):
+    def collate(self, inputs):
+        """
+        Return:
+            A dict of pytorch tensors
+        """
         # only one item in the batch
-        batch = batch[0]
-        total_len = sum([len(item) for item in batch])
+
+        total_len = sum([len(item) for item in inputs[0]])
         # make random positions
         start_position = random.randint(0, 1024 - total_len)
 
         position_ids = []
-        for item in batch:
+        for item in inputs[0]:
             pos = torch.arange(start_position,
                                start_position + len(item)).unsqueeze(0)
             position_ids.append(pos)
             start_position = start_position + len(item)
 
-        batch = [torch.LongTensor([item]) for item in batch]
+        inputs = [torch.LongTensor([item]) for item in inputs[0]]
+
+        batch = {
+            "input_ids": inputs,
+            "position_ids": position_ids
+        }
 
         return batch
 
@@ -66,6 +75,16 @@ def dialog_to_tensor(tokenzier, dialog, device=None):
     if device:
         res = [item.to(device) for item in res]
     return res
+
+def batch_to_device(batch, device):
+    new_batch = {}
+    for key, value in batch.items():
+        if isinstance(value, list):
+            new_batch[key] = [tensor.to(device) for tensor in value]
+        else:
+            new_batch[key] = value.to(device)
+
+    return new_batch
 
 
 if __name__ == '__main__':
@@ -87,20 +106,18 @@ if __name__ == '__main__':
     else:
         train_sampler = DistributedSampler(train_dataset)
 
-    train_dataloader = DataLoader(
-        dataset=train_dataset,
-        sampler=train_sampler,
-        batch_size=args.batch_size,
-        collate_fn=train_dataset.collate
-    )
+    train_dataloader = DataLoader(dataset=train_dataset,
+                                  sampler=train_sampler,
+                                  batch_size=args.batch_size,
+                                  collate_fn=train_dataset.collate)
 
     # define the model
     model = ARDM(args)
 
-    num_train_optimization_steps = (
-        1 * args.num_train_epochs // args.batch_size //
-        args.gradient_accumulation_steps
-    )
+    num_train_optimization_steps = (len(train_dataset) *
+                                    args.num_train_epochs // args.batch_size //
+                                    args.gradient_accumulation_steps //
+                                    args.n_gpu)
 
     # dialog = dialog_to_tensor(tokenizer, dialog, device)
     optimizer_parameters = get_transformer_optim_params(args, model)
@@ -109,11 +126,9 @@ if __name__ == '__main__':
     if args.warmup_steps < 0:
         args.warmup_steps = int(args.warmup_ratio * len(train_dataset))
 
-    scheduler = WarmupLinearSchedule(
-        optimizer,
-        warmup_steps=args.warmup_steps,
-        t_total=num_train_optimization_steps
-    )
+    scheduler = WarmupLinearSchedule(optimizer,
+                                     warmup_steps=args.warmup_steps,
+                                     t_total=num_train_optimization_steps)
 
     manager.init_training(model, optimizer)
 
@@ -127,8 +142,7 @@ if __name__ == '__main__':
         checkpointer = Checkpointer(
             "Checkpoint",
             keep_serialized_model_every_num_seconds=3600 * 4,
-            num_serialized_models_to_keep=10
-        )
+            num_serialized_models_to_keep=10)
         writer = SummaryWriter()
         start = time.time()
         update_loss = 0.0
@@ -138,7 +152,7 @@ if __name__ == '__main__':
         pbar = progress_bar(train_dataloader)
 
         for batch in pbar:
-            batch = [item.to(args.device) for item in batch]
+            batch = batch_to_device(batch, args.device)
 
             loss, kl = model.train_one_step(batch)
             manager.backward_loss(loss, model, optimizer)
@@ -154,13 +168,12 @@ if __name__ == '__main__':
                 if manager.is_main_rank():
                     end = time.time()
                     speed = args.batch_size * args.n_gpu * args.gradient_accumulation_steps / (
-                        end - start
-                    )
+                        end - start)
                     start = end
                     # show progress
-                    pbar.set_postfix(
-                        loss=update_loss, kl=update_kl, speed=speed
-                    )
+                    pbar.set_postfix(loss=update_loss,
+                                     kl=update_kl,
+                                     speed=speed)
 
             # post-processing
             if manager.is_main_rank():
@@ -174,9 +187,7 @@ if __name__ == '__main__':
                 # saving models
 
                 if update_count % args.save_steps == 0:
-                    checkpointer.save_checkpoint(
-                        update_count,
-                        model.state_dict(),
-                        optimizer.state_dict(),
-                        is_best_so_far=True
-                    )
+                    checkpointer.save_checkpoint(update_count,
+                                                 model.state_dict(),
+                                                 optimizer.state_dict(),
+                                                 is_best_so_far=True)

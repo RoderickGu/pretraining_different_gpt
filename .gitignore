@@ -1,3 +1,6 @@
+# tensorboard
+runs
+Checkpoint*
 corpus
 *data
 *.ipynb
