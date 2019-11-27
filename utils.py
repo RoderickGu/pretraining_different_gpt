@@ -14,6 +14,12 @@ def parse_args(argv=None):
 
     # add all arguments
     parser.add_argument(
+        "--model_size",
+        default="small",
+        type=str,
+        help="version of model, small, medium, large, xlarge"
+    )
+    parser.add_argument(
         "--learning_rate",
         default=1e-4,
         type=float,

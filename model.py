@@ -3,11 +3,11 @@ import torch
 import torch.nn as nn
 import logging
 
-from transformers import AdamW, WarmupLinearSchedule
-from torchfly.transformers import UnifiedTokenizer, GPT2SimpleLM, UnifiedGPT2SmallConfig
-from torchfly.utils import get_pretrained, init_logging
-from torchfly.criterions import SequenceCrossEntropyLoss
-
+from transformers import AdamW, get_linear_schedule_with_warmup
+from torchfly.modules.transformers import GPT2SimpleLM, UnifiedGPT2SmallConfig,  UnifiedGPT2MediumConfig, UnifiedGPT2LargeConfig, UnifiedGPT2XLConfig
+from torchfly.text.tokenizers import UnifiedBPETokenizer
+from torchfly.utils import get_pretrained_states, init_logging
+from torchfly.modules.losses import SequenceCrossEntropyLoss
 import utils
 
 init_logging()
@@ -54,16 +54,30 @@ class ARDM(nn.Module):
         super(ARDM, self).__init__()
         self.args = args
 
+        if args.model_size == "small":
+            model_config = UnifiedGPT2SmallConfig
+            state_name = "unified-gpt2-small"
+        elif args.model_size == "medium":
+            model_config = UnifiedGPT2MediumConfig
+            state_name = "unified-gpt2-medium-fp16"
+        elif args.model_size == "large":
+            model_config = UnifiedGPT2LargeConfig
+            state_name = "unified-gpt2-large-fp16"
+        elif args.model_size == "xlarge":
+            model_config = UnifiedGPT2XLConfig
+            state_name = "unified-gpt2-xl-fp16"
+        else:
+            raise ValueError("not the right model size, use small, medium, large or xlarge")
         # define the two language models
-        self.model_A = GPT2SimpleLM(UnifiedGPT2SmallConfig)
-        self.model_B = GPT2SimpleLM(UnifiedGPT2SmallConfig)
+        self.model_A = GPT2SimpleLM(model_config)
+        self.model_B = GPT2SimpleLM(model_config)
         # language model KL
-        self.language_model = GPT2SimpleLM(UnifiedGPT2SmallConfig)
+        self.language_model = GPT2SimpleLM(model_config)
         # load weights
-        self.model_A.load_state_dict(get_pretrained("unified-gpt2-small"))
-        self.model_B.load_state_dict(get_pretrained("unified-gpt2-small"))
+        self.model_A.load_state_dict(get_pretrained_states(state_name), strict=False)
+        self.model_B.load_state_dict(get_pretrained_states(state_name), strict=False)
         self.language_model.load_state_dict(
-            get_pretrained("unified-gpt2-small")
+            get_pretrained_states(state_name), strict=False
         )
         # freeze weights
         utils.freeze_model(self.language_model)
@@ -148,7 +162,7 @@ if __name__ == "__main__":
         "B:No, I didn't. is it good?",
         "A:Yes, it is good. you should watch it.",
     ]
-    tokenizer = UnifiedTokenizer()
+    tokenizer = UnifiedBPETokenizer()
 
     device = torch.device("cuda")
     model = ARDM(args)
@@ -184,8 +198,8 @@ if __name__ == "__main__":
     # dialog = dialog_to_tensor(tokenizer, dialog, device)
     optimizer = AdamW(optimizer_grouped_parameters, lr=1e-3, eps=1e-06)
 
-    scheduler = WarmupLinearSchedule(
-        optimizer, warmup_steps=500, t_total=num_train_optimization_steps
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, num_warmup_steps=500, num_training_steps=num_train_optimization_steps
     )
 
     for i in range(1000):

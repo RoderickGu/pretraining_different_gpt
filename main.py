@@ -7,14 +7,18 @@ import tqdm
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, RandomSampler, DistributedSampler
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except:
+    from tensorboardX import SummaryWriter
 from allennlp.training.checkpointer import Checkpointer
 import logging
 
-from torchfly.transformers import UnifiedTokenizer, GPT2SimpleLM
-from torchfly.utils import get_pretrained, init_logging
-from transformers import AdamW, WarmupLinearSchedule
-
+from torchfly.modules.transformers import GPT2SimpleLM
+from torchfly.utils import get_pretrained_states, init_logging
+from transformers import AdamW, get_linear_schedule_with_warmup
+# from transformers import WarmupLinearSchedule
+from torchfly.text.tokenizers import UnifiedBPETokenizer
 from dialog_utils import DialogFragmentSampler
 from distributed_utils import DistributedManager
 from utils import parse_args, freeze_model, get_transformer_optim_params
@@ -93,7 +97,7 @@ if __name__ == '__main__':
     manager = DistributedManager(args)
 
     # define the tokenizer
-    tokenizer = UnifiedTokenizer()
+    tokenizer = UnifiedBPETokenizer()
 
     # construct dataset
     with open("dialog_corpus.json") as f:
@@ -126,9 +130,9 @@ if __name__ == '__main__':
     if args.warmup_steps < 0:
         args.warmup_steps = int(args.warmup_ratio * len(train_dataset))
 
-    scheduler = WarmupLinearSchedule(optimizer,
-                                     warmup_steps=args.warmup_steps,
-                                     t_total=num_train_optimization_steps)
+    scheduler = get_linear_schedule_with_warmup(optimizer,
+                                     num_warmup_steps=args.warmup_steps,
+                                     num_training_steps=num_train_optimization_steps)
 
     manager.init_training(model, optimizer)
 
@@ -139,6 +143,8 @@ if __name__ == '__main__':
         progress_bar = iter
 
     if manager.is_main_rank():
+        if not os.path.isdir(args.checkpoint_dir):
+            os.mkdir(args.checkpoint_dir)
         checkpointer = Checkpointer(
             "Checkpoint",
             keep_serialized_model_every_num_seconds=3600 * 4,
